@@ -1,4 +1,4 @@
-"""Copyright (C) 2017  The University of Manchester
+"""Copyright (C) 2018  The University of Cape Town
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -43,10 +43,10 @@ REGEXP_LECTURER = "rexexp_lecturer"
 REGEXP_LEARNER = "rexexp_learner"
 
 # URL to request user information from
-DEFAULT_URL = "http://camonitor.uct.ac.za/obs-api/event/owner/"
+DEFAULT_FIND_URL = "http://camonitor.uct.ac.za/obs-api/event/owner/"
 DEFAULT_CREATE_URL = "http://camonitor.uct.ac.za/obs-api/series/"
-URL_GET = "get"
-URL_POST = "create"
+URL_FIND = "url_find"
+URL_CREATE = "url_create"
 
 timeout_id = None
 
@@ -198,10 +198,11 @@ class SetUserClass(Gtk.Widget):
         self.user_email = ""
         self.series_id = ""
         self.series_title = ""
+        self.searching = False
 
         self.__logger = _logger
-        self.__url = config.get(URL_GET, DEFAULT_URL)
-        self.__create_url = config.get(URL_POST, DEFAULT_CREATE_URL)
+        self.__url = config.get(URL_FIND, DEFAULT_FIND_URL)
+        self.__create_url = config.get(URL_CREATE, DEFAULT_CREATE_URL)
         self.__session = FuturesSession()
 
         regexp = config.get(REGEXP_LECTURER, DEFAULT_REGEXP_LECTURER)
@@ -297,8 +298,10 @@ class SetUserClass(Gtk.Widget):
     def search_stopped(self, widget, data=None):
         #self.__logger.info("search_stopped")
         self.clear_search_entry()
+        self.searching = False
 
     def clear_search_entry(self):
+        self.searching = False
         self.search_field.set_text("")
 
         for element in self.result.get_children():
@@ -342,12 +345,15 @@ class SetUserClass(Gtk.Widget):
         self.result.pack_start(loading_box, expand=False, fill=False, padding=0)
         self.result.show_all()
 
-        future = self.__session.get(self.__url + value, background_callback=self.show_response)
+        if not self.searching:
+            self.searching = True
+            future = self.__session.get(self.__url + value, background_callback=self.show_response)
         #response = future.result()
         #self.__logger.info('response status {0}'.format(response.status_code))
 
     def show_response(self, sess, resp):
-        self.__logger.info("request returned.")
+        #self.__logger.info("request returned.")
+        self.searching = False
 
         for element in self.result.get_children():
             self.result.remove(element)
