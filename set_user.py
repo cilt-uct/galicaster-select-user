@@ -19,6 +19,7 @@ import logging
 import errno
 import gi
 import re
+import requests
 from collections import namedtuple
 from datetime import timedelta, datetime, tzinfo
 from requests_futures.sessions import FuturesSession
@@ -74,19 +75,9 @@ def init_user_ui(element):
     """
     global recorder_ui, res, logger
 
-    # load glade file
-    #builder = Gtk.Builder()
-    #builder.add_from_file(get_ui_path("camctrl-vapix.glade"))
-
-    # calculate resolution for scaling
-    #window_size = context.get_mainwindow().get_size()
-    #res = window_size[0]/1920.0
-
     recorder_ui = context.get_mainwindow().nbox.get_nth_page(0)
 
     controller = UserController(logger, recorder_ui)
-    #dispatcher.connect("recorder-starting", controller.on_start_recording)
-    #dispatcher.connect("recorder-stopped", controller.on_stop_recording)
 
     logger.info("Set user init done.")
 
@@ -177,7 +168,8 @@ class UserController():
 
         self.details['take'] += 1
         title = self.details['organizer'].strip() + ' - Take #' + str(self.details['take'])
-        new_mp = mediapackage.Mediapackage(title=title)
+        new_mp = mediapackage.Mediapackage(title=title, presenter=self.details['organizer'])
+        new_mp.setMetadataByName('source', 'Personal['+ self.details['series'] +']')
         new_mp.setSeries({
             'title': self.details['seriesTitle'],
             'identifier': self.details['series']
@@ -241,8 +233,8 @@ class SetUserClass(Gtk.Widget):
         self.search_field = gui.get_object("inp_search")
         #search_field.connect('key-press-event', self.on_key_press)
         self.search_field.connect('key-release-event', self.on_key_release)
-        self.search_field.connect('search-changed', self.search_changed)
-        self.search_field.connect('stop-search', self.search_stopped)
+        #self.search_field.connect('search-changed', self.search_changed)
+        #self.search_field.connect('stop-search', self.search_stopped)
 
         self.result = gui.get_object("grd_result")
 
@@ -281,6 +273,16 @@ class SetUserClass(Gtk.Widget):
         if ev.keyval == Gdk.KEY_Return or ev.keyval == Gdk.KEY_KP_Enter:
             self.do_search(widget.get_text())
 
+        if self.__lecturer.match(widget.get_text()): # if valid lecturer search
+            #self.__logger.info("Lecturer :) " + widget.get_text())
+            if not self.searching:
+                self.do_search(widget.get_text())
+
+        if self.__learner.match(widget.get_text()): # if valid learner search
+            #self.__logger.info("Learner :) " + widget.get_text())
+            if not self.searching:
+                self.do_search(widget.get_text())
+
     def search_changed(self, widget, data=None):
         #self.__logger.info("search_changed")
 
@@ -289,11 +291,13 @@ class SetUserClass(Gtk.Widget):
 
         if self.__lecturer.match(widget.get_text()): # if valid lecturer search
             #self.__logger.info("Lecturer :) " + widget.get_text())
-            self.do_search(widget.get_text())
+            if not self.searching:
+                self.do_search(widget.get_text())
 
         if self.__learner.match(widget.get_text()): # if valid learner search
             #self.__logger.info("Learner :) " + widget.get_text())
-            self.do_search(widget.get_text())
+            if not self.searching:
+                self.do_search(widget.get_text())
 
     def search_stopped(self, widget, data=None):
         #self.__logger.info("search_stopped")
@@ -311,7 +315,7 @@ class SetUserClass(Gtk.Widget):
         self.result.pack_start(label, expand=False, fill=False, padding=0)
 
     def do_search(self, value):
-        #self.__logger.info("Searching : " + self.__url + value)
+        self.__logger.info("Searching : " + self.__url + value)
 
         #if self.__lecturer.match(value): # if valid lecturer search
         #    self.__logger.info("Lecturer :) " + value)
@@ -322,6 +326,9 @@ class SetUserClass(Gtk.Widget):
         #    self.__logger.info("Learner :) " + value)
         #else:
         #    self.__logger.info("Not Learner")
+
+        self.searching = True
+        self.search_field.set_editable(False) # disabled
 
         for element in self.result.get_children():
             self.result.remove(element)
@@ -345,15 +352,12 @@ class SetUserClass(Gtk.Widget):
         self.result.pack_start(loading_box, expand=False, fill=False, padding=0)
         self.result.show_all()
 
-        if not self.searching:
-            self.searching = True
-            future = self.__session.get(self.__url + value, background_callback=self.show_response)
-        #response = future.result()
-        #self.__logger.info('response status {0}'.format(response.status_code))
+        #future = self.__session.get(self.__url + value, background_callback=self.show_response)
+        self.show_response(None, requests.get(self.__url + value)) # static request
 
     def show_response(self, sess, resp):
-        #self.__logger.info("request returned.")
-        self.searching = False
+        self.__logger.info("request returned.")
+        self.__logger.info(resp)
 
         for element in self.result.get_children():
             self.result.remove(element)
@@ -410,6 +414,8 @@ class SetUserClass(Gtk.Widget):
             label = Gtk.Label("No student or lecturer found.")
             self.result.pack_start(label, expand=False, fill=False, padding=0)
 
+        self.searching = False
+        self.search_field.set_editable(True) # enabled
         self.result.show_all()
 
     def create_series(self, ev=None):
