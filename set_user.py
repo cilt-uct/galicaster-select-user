@@ -22,7 +22,6 @@ import re
 import requests
 from collections import namedtuple
 from datetime import timedelta, datetime, tzinfo
-from requests_futures.sessions import FuturesSession
 
 gi.require_version('Gtk', '3.0')
 
@@ -195,7 +194,6 @@ class SetUserClass(Gtk.Widget):
         self.__logger = _logger
         self.__url = config.get(URL_FIND, DEFAULT_FIND_URL)
         self.__create_url = config.get(URL_CREATE, DEFAULT_CREATE_URL)
-        self.__session = FuturesSession()
 
         regexp = config.get(REGEXP_LECTURER, DEFAULT_REGEXP_LECTURER)
         #self.__logger.info("Lecturer REGEXP = " + regexp)
