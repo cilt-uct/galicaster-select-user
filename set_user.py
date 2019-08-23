@@ -37,10 +37,8 @@ from galicaster.utils.i18n import _
 CONFIG_SECTION = "set_user"
 
 # REGEXP Defaults and Keys
-DEFAULT_REGEXP_LECTURER = "[0-9]{8}"
-DEFAULT_REGEXP_LEARNER = "[a-zA-z]{6}[0-9]{3}"
-REGEXP_LECTURER = "rexexp_lecturer"
-REGEXP_LEARNER = "rexexp_learner"
+DEFAULT_REGEXP = "[0-9]{8}|[a-zA-Z]{6}[0-9]{3}|[T|t][0-9]{7}"
+CONFIG_REGEXP = "rexexp"
 
 # URL to request user information from
 DEFAULT_FIND_URL = "http://camonitor.uct.ac.za/obs-api/event/owner/"
@@ -197,13 +195,9 @@ class SetUserClass(Gtk.Widget):
         self.__url = config.get(URL_FIND, DEFAULT_FIND_URL)
         self.__create_url = config.get(URL_CREATE, DEFAULT_CREATE_URL)
 
-        regexp = config.get(REGEXP_LECTURER, DEFAULT_REGEXP_LECTURER)
-        #self.__logger.info("Lecturer REGEXP = " + regexp)
-        self.__lecturer = re.compile("[0-9]{8}")
-
-        regexp = config.get(REGEXP_LEARNER, DEFAULT_REGEXP_LEARNER)
-        #self.__logger.info("Learner REGEXP = " + regexp)
-        self.__learner = re.compile("[a-zA-z]{6}[0-9]{3}")
+        regexp = config.get(CONFIG_REGEXP, DEFAULT_REGEXP)
+        self.__logger.info("REGEXP = " + regexp)
+        self.__regexp = re.compile(regexp)
 
         parent = context.get_mainwindow()
         size = parent.get_size()
@@ -276,13 +270,8 @@ class SetUserClass(Gtk.Widget):
         if ev.keyval == Gdk.KEY_Return or ev.keyval == Gdk.KEY_KP_Enter:
             self.do_search(widget.get_text())
 
-        if self.__lecturer.match(widget.get_text()): # if valid lecturer search
-            #self.__logger.info("Lecturer :) " + widget.get_text())
-            if not self.searching:
-                self.do_search(widget.get_text())
-
-        if self.__learner.match(widget.get_text()): # if valid learner search
-            #self.__logger.info("Learner :) " + widget.get_text())
+        if self.__regexp.match(widget.get_text()): # if valid search
+            #self.__logger.info("found :) " + widget.get_text())
             if not self.searching:
                 self.do_search(widget.get_text())
 
@@ -292,13 +281,8 @@ class SetUserClass(Gtk.Widget):
         if widget.get_text() == "":
             self.clear_search_entry()
 
-        if self.__lecturer.match(widget.get_text()): # if valid lecturer search
-            #self.__logger.info("Lecturer :) " + widget.get_text())
-            if not self.searching:
-                self.do_search(widget.get_text())
-
-        if self.__learner.match(widget.get_text()): # if valid learner search
-            #self.__logger.info("Learner :) " + widget.get_text())
+        if self.__regexp.match(widget.get_text()): # if valid search
+            #self.__logger.info("found :) " + widget.get_text())
             if not self.searching:
                 self.do_search(widget.get_text())
 
@@ -319,16 +303,6 @@ class SetUserClass(Gtk.Widget):
 
     def do_search(self, value):
         self.__logger.info("Searching : " + self.__url + value)
-
-        #if self.__lecturer.match(value): # if valid lecturer search
-        #    self.__logger.info("Lecturer :) " + value)
-        #else:
-        #    self.__logger.info("Not Lecturer")
-
-        #if self.__learner.match(value): # if valid learner search
-        #    self.__logger.info("Learner :) " + value)
-        #else:
-        #    self.__logger.info("Not Learner")
 
         self.searching = True
         self.search_field.set_editable(False) # disabled
