@@ -22,6 +22,7 @@ import re
 import requests
 from collections import namedtuple
 from datetime import timedelta, datetime, tzinfo
+from string import Template
 
 gi.require_version('Gtk', '3.0')
 
@@ -40,22 +41,29 @@ CONFIG_SECTION = "set_user"
 DEFAULT_REGEXP = "[0-9]{8}|[a-zA-Z]{6}[0-9]{3}|[T|t][0-9]{7}"
 CONFIG_REGEXP = "rexexp"
 
-# URL to request user information from
-DEFAULT_FIND_URL = "http://camonitor.uct.ac.za/obs-api/event/owner/"
-DEFAULT_CREATE_URL = "http://camonitor.uct.ac.za/obs-api/series/"
-URL_FIND = "url_find"
-URL_CREATE = "url_create"
+DEFAULT_SERIES_FILTER = '%2Csubject%3APersonal'
+CONFIG_SERIES_FILTER = "filter"
+
+METADATA = Template('[]')
+ACL = Template('[]')
 
 timeout_id = None
 
 def init():
-    global recorder, dispatcher, logger, config, repo
+    global recorder, dispatcher, logger, config, repo, oc_client, METADATA, ACL
 
     config = context.get_conf().get_section(CONFIG_SECTION) or {}
     dispatcher = context.get_dispatcher()
     repo = context.get_repository()
     logger = context.get_logger()
     recorder = context.get_recorder()
+    oc_client = context.get_occlient()
+
+    with open(get_ui_path("series_metadata_template.json"), "r") as metadataFile:
+        METADATA = Template(metadataFile.read())
+
+    with open(get_ui_path("acl_template.json"), "r") as aclFile:
+        ACL = Template(aclFile.read())
 
     try:
         dispatcher.connect("init", init_user_ui)
@@ -74,7 +82,7 @@ def init_user_ui(element):
 
     recorder_ui = context.get_mainwindow().nbox.get_nth_page(0)
 
-    controller = UserController(logger, recorder_ui)
+    controller = UserController(logger, recorder_ui, oc_client)
 
     logger.info("Set user init done.")
 
@@ -82,9 +90,10 @@ class UserController():
     """
     Handle the buttons on the main ui
     """
-    def __init__(self, _logger, _ui):
+    def __init__(self, _logger, _ui , _client):
         self.__logger = _logger
         self.__ui = _ui
+        self.__oc_client = _client
 
         self.details = None
 
@@ -128,7 +137,7 @@ class UserController():
 
     def button_set_user(self, button):
         self.__logger.info("SET USER")
-        popup = SetUserClass(self.__logger, title="Get My Info")
+        popup = SetUserClass(self.__logger, title="Get My Info", client = self.__oc_client)
 
         if popup.return_value == -10:
             self.btn_clear.set_sensitive(True) # enabled
@@ -181,7 +190,7 @@ class SetUserClass(Gtk.Widget):
     """
     __gtype_name__ = 'SetUserClass'
 
-    def __init__(self, _logger=None, title="Get My Info"):
+    def __init__(self, _logger=None, title="Get My Info", client=None):
         """
         """
         self.id = ""
@@ -190,10 +199,12 @@ class SetUserClass(Gtk.Widget):
         self.series_id = ""
         self.series_title = ""
         self.searching = False
+        self.details = None
 
         self.__logger = _logger
-        self.__url = config.get(URL_FIND, DEFAULT_FIND_URL)
-        self.__create_url = config.get(URL_CREATE, DEFAULT_CREATE_URL)
+        self.__oc_client = client
+
+        self.series_filter = config.get(CONFIG_SERIES_FILTER, DEFAULT_SERIES_FILTER)
 
         regexp = config.get(CONFIG_REGEXP, DEFAULT_REGEXP)
         self.__logger.info("REGEXP = " + regexp)
@@ -302,8 +313,7 @@ class SetUserClass(Gtk.Widget):
         self.result.pack_start(label, expand=False, fill=False, padding=0)
 
     def do_search(self, value):
-        self.__logger.info("Searching : " + self.__url + value)
-
+        self.__logger.info("Searching for " + value)
         self.searching = True
         self.search_field.set_editable(False) # disabled
 
@@ -329,65 +339,58 @@ class SetUserClass(Gtk.Widget):
         self.result.pack_start(loading_box, expand=False, fill=False, padding=0)
         self.result.show_all()
 
-        #future = self.__session.get(self.__url + value, background_callback=self.show_response)
-        self.show_response(None, requests.get(self.__url + value)) # static request
+        self.show_response( self.call_get_user_info(value) ) # static request
 
-    def show_response(self, sess, resp):
-        self.__logger.info("GET request returned.")
-        #self.__logger.info(resp)
+    def show_response(self, details):
+        self.__logger.info("Got search results back")
 
         for element in self.result.get_children():
             self.result.remove(element)
 
-        if resp.ok:
-            details = json.loads(resp.content, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+        if details['fullname']:
+            self.details = details
+            self.id = details['username']
+            self.user_name = details['fullname']
+            self.user_email = details['email']
 
-            if details.fullname:
-                self.id = details.username
-                self.user_name = details.fullname
-                self.user_email = details.email
+            result_box = Gtk.Box(spacing=30)
+            result_box.set_name("grd_result_button")
 
-                result_box = Gtk.Box(spacing=30)
-                result_box.set_name("grd_result_button")
+            self.user_button = Gtk.Button()
+            self.user_button.set_name("btn_select_user")
+            self.user_button.set_relief(Gtk.ReliefStyle.NONE)
+            button_box = Gtk.Box(spacing=10)
+            self.user_button.add(button_box)
 
-                self.user_button = Gtk.Button()
-                self.user_button.set_name("btn_select_user")
-                self.user_button.set_relief(Gtk.ReliefStyle.NONE)
-                button_box = Gtk.Box(spacing=10)
-                self.user_button.add(button_box)
+            self.__logger.info("Found: " + details['fullname'])
+            label = Gtk.Label(details['fullname'])
 
-                #self.__logger.info("Found: " + details.fullname)
-                label = Gtk.Label(details.fullname)
+            img_series = Gtk.Image()
 
-                img_series = Gtk.Image()
-
-                if details.ocSeries:
-                    img_series.set_from_icon_name("object-select-symbolic", 2)
-                    #self.__logger.info("     Series: " + details.ocSeries[0].identifier)
-                    self.user_button.connect("clicked", self.close_modal)
-                    self.series_id = details.ocSeries[0].identifier
-                    self.series_title = details.ocSeries[0].title
-                else:
-                    img_series.set_from_icon_name("star-new-symbolic", 2)
-                    self.user_button.connect("clicked", self.create_series)
-                    self.series_id = ""
-                    self.series_title = ""
-
-                button_box.pack_start(img_series, expand=False, fill=False, padding=10)
-                button_box.pack_start(label, expand=False, fill=False, padding=10)
-
-                label = Gtk.Label("select")
-                label.set_markup('<span foreground="#494941" face="sans" size="small">select</span>')
-                button_box.pack_start(label, expand=False, fill=False, padding=10)
-
-                result_box.pack_start(self.user_button, expand=True, fill=True, padding=10)
-                self.result.pack_start(result_box, expand=False, fill=False, padding=0)
+            if details['ocSeries']:
+                self.__logger.info("     Series: " + details['ocSeries'][0]['identifier'])
+                img_series.set_from_icon_name("object-select-symbolic", 2)
+                self.user_button.connect("clicked", self.close_modal)
+                self.series_id = details['ocSeries'][0]['identifier']
+                self.series_title = details['ocSeries'][0]['title']
             else:
-                #self.__logger.info(":(")
-                label = Gtk.Label("No student or lecturer found.")
-                self.result.pack_start(label, expand=False, fill=False, padding=0)
+                img_series.set_from_icon_name("star-new-symbolic", 2)
+                self.user_button.connect("clicked", self.create_series)
+                self.series_id = ""
+                self.series_title = ""
 
+            button_box.pack_start(img_series, expand=False, fill=False, padding=10)
+            button_box.pack_start(label, expand=False, fill=False, padding=10)
+
+            label = Gtk.Label("select")
+            label.set_markup('<span foreground="#494941" face="sans" size="small">select</span>')
+            button_box.pack_start(label, expand=False, fill=False, padding=10)
+
+            result_box.pack_start(self.user_button, expand=True, fill=True, padding=10)
+            self.result.pack_start(result_box, expand=False, fill=False, padding=0)
         else:
+            self.__logger.info(":(")
+            self.details = None
             label = Gtk.Label("No student or lecturer found.")
             self.result.pack_start(label, expand=False, fill=False, padding=0)
 
@@ -399,7 +402,6 @@ class SetUserClass(Gtk.Widget):
         conf = context.get_conf()
 
         self.__logger.info("Creating series")
-        self.__logger.info(conf.get_hostname())
 
         if self.user_button is not None:
             self.user_button.set_sensitive(False) # disabled
@@ -426,25 +428,120 @@ class SetUserClass(Gtk.Widget):
         self.result.pack_start(loading_box, expand=False, fill=False, padding=0)
         self.result.show_all()
 
-        #future = self.__session.post(self.__create_url + self.id, background_callback=self.set_series_close_modal)
-        self.set_series_close_modal(None, requests.post(self.__create_url + self.id, data={'hostname': conf.get_hostname()}))
+        self.set_series_close_modal(self.call_create_series(self.details))
 
-    def set_series_close_modal(self, sess, resp):
+    def set_series_close_modal(self, resp):
         self.__logger.info("POST request returned.")
-        #self.__logger.info(resp)
 
-        if resp.ok:
-            details = json.loads(resp.content, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+        if resp is not None:
+            self.series_id = resp
+            self.series_title = "Created Series: " + resp
+            self.close_modal()
+        else:
+            self.series_id = ""
+            self.series_title = ""
 
-            if details.identifier:
-                self.series_id = details.identifier
-                self.series_title = details.title
-            else:
-                self.series_id = ""
-                self.series_title = ""
+            for element in self.result.get_children():
+                self.result.remove(element)
 
-        self.close_modal()
+            loading_box = Gtk.Box(spacing=10)
+            loading_box.set_name("grd_result_loading")
+
+            label = Gtk.Label("")
+            loading_box.pack_start(label, expand=False, fill=False, padding=0)
+
+            img_error = Gtk.Image()
+            img_error.set_from_icon_name("emblem-important", 5)
+            loading_box.pack_start(img_error, expand=False, fill=False, padding=8)
+
+            label = Gtk.Label("Could not create user profile")
+            loading_box.pack_start(label, expand=False, fill=False, padding=0)
+
+            label = Gtk.Label("")
+            loading_box.pack_start(label, expand=False, fill=False, padding=0)
+
+            self.result.pack_start(loading_box, expand=False, fill=False, padding=0)
+            self.result.show_all()
 
     def close_modal(self, ev=None):
         self.__logger.info("closing modal")
         self.dialog.response(-10)
+
+    def call_get_user_info(self, user_id):
+        """
+        Retreive user and series info from Opencast
+
+        :param id: Staff / T / Student Number
+
+        :return: Return dictionary structured content to set display name and series
+
+        :raise ValueError: if the input arguments are not valid
+        :raise OpencastException: if the communication to the opencast server fails
+                                or an unexpected error occures
+        """
+        if not user_id:
+            raise ValueError("user ID isn't set")
+
+        result_data = {'fullname': '', 'email': '', 'username': '', 'site_id' : '', 'ocSeries' : [],
+                       'ca_name': self.__oc_client.hostname}
+
+        try:
+            response = self.__oc_client.get_user_details(user_id)
+
+            if "sakai,opencast" in response:
+                full_data = json.loads(response, encoding='utf8')
+
+                result_data['fullname'] = full_data['user']['name']
+                result_data['email'] = full_data['user']['email'].lower()
+                result_data['username'] = full_data['user']['username'].lower()
+        except Exception as exc:
+            self.__logger.warning('call_get_user_info user [{1}]: {0}'.format(exc, user_id))
+
+        try:
+            response = self.__oc_client.get_personal_series(user_id, self.series_filter)
+
+            if "Personal Series" in response:
+                series_data = json.loads(response, encoding='utf8')
+
+                if len(series_data) > 0:
+                    result_data['ocSeries'] = series_data
+
+        except Exception as exc:
+            self.__logger.error('call_get_user_info series [{1}]: {0}'.format(exc, user_id))
+
+        # self.__logger.info(result_data)
+        return result_data
+
+    def call_create_series(self, data):
+        """
+        Create a new Opencast Series with the data given
+
+        :param data: Contains info about the series to be created
+
+        :return: Return dictionary structured content to set display name and series
+
+        :raise ValueError: if the input arguments are not valid
+        :raise OpencastException: if the communication to the opencast server fails
+                                or an unexpected error occures
+        """
+        global METADATA, ACL
+
+        if not data:
+            raise ValueError("user data isn't set")
+
+        result = None
+        try:
+            m = METADATA.safe_substitute(data).encode('iso-8859-1')
+            a = ACL.safe_substitute(data).encode('iso-8859-1')
+
+            response = self.__oc_client.create_series(m, a)
+            if response is not None:
+                if "identifier" in response:
+                    details = json.loads(response, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+                    if details.identifier:
+                        result = details.identifier
+
+        except Exception as exc:
+            self.__logger.error('call_create_series: {}'.format(exc))
+
+        return result
