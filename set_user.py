@@ -26,7 +26,7 @@ from string import Template
 
 gi.require_version('Gtk', '3.0')
 
-from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, Pango
+from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, Pango, GLib
 from galicaster.core import context
 from galicaster.classui import get_ui_path
 from galicaster.classui import get_image_path
@@ -96,6 +96,7 @@ class UserController():
         self.__oc_client = _client
 
         self.details = None
+        self.__ui.connect('key-press-event', self.on_key_press)
 
         # so overwrite the default record button function
         rec_button = self.__ui.gui.get_object("recbutton")
@@ -135,6 +136,21 @@ class UserController():
         self.box.pack_start(new_box, False, False, 10)
         self.box.show_all()
 
+    def on_key_press(self, widget, event):
+        global recorder
+        #logger.info("Key press on widget: {}".format(widget))
+        #logger.info("          Modifiers: {}".format(event.state))
+        logger.info("      Key val, name: {} {}".format(event.keyval, Gdk.keyval_name(event.keyval)))
+
+        if (Gdk.keyval_name(event.keyval) == "Return"):
+            logger.info("      ENTER :) {}".format(recorder.is_recording()))
+            if recorder.is_recording():
+                self.stop_recording()
+            else:
+                self.on_rec()
+
+            return True
+
     def button_set_user(self, button):
         self.__logger.info("SET USER")
         popup = SetUserClass(self.__logger, title="Get My Info", client = self.__oc_client)
@@ -166,9 +182,15 @@ class UserController():
         self.box.show_all()
         recorder.title_standin = None
 
-    def on_rec(self, elem):
+    def on_rec(self):
+        global recorder
         recorder.record(self.create_mp())
         self.__logger.info("# Start Recording")
+
+    def stop_recording(self):
+        global recorder
+        Gdk.threads_add_idle(GLib.PRIORITY_HIGH, recorder.stop)
+        self.__logger.info("# Stopping Recording")
 
     def create_mp(self):
         if self.details is None:
@@ -272,17 +294,17 @@ class SetUserClass(Gtk.Widget):
 
     def on_key_release(self, widget, ev, data=None):
 
-        #If Escape pressed, reset text
+        # If Escape pressed, reset text
         if ev.keyval == Gdk.KEY_Escape:
             widget.set_text("")
             self.clear_search_entry()
 
-        #If Enter pressed, try searching
+        # If Enter pressed, try searching
         if ev.keyval == Gdk.KEY_Return or ev.keyval == Gdk.KEY_KP_Enter:
             self.do_search(widget.get_text())
 
         if self.__regexp.match(widget.get_text()): # if valid search
-            #self.__logger.info("found :) " + widget.get_text())
+            self.__logger.info("found :) " + widget.get_text())
             if not self.searching:
                 self.do_search(widget.get_text())
 
