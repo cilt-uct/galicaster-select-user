@@ -405,13 +405,12 @@ class RecorderClassUI(Gtk.Box):
                         status.set_name('blinking_coloured_to')
                     status_label_blink = not status_label_blink
 
-            elif self.recorder.obs_presenter is not None:
+            elif self.recorder.title_standin is not None:
                 if event_type.get_text():
                     event_type.set_text("")
                 if status.get_text():
                     status.set_text("")
-                title.set_text(_("Live with " + self.recorder.obs_presenter))
-
+                title.set_text(_(self.recorder.title_standin))
 
             else: # Not current or pending recordings
                 if event_type.get_text():

@@ -47,8 +47,6 @@ CONFIG_SERIES_FILTER = "filter"
 METADATA = Template('[]')
 ACL = Template('[]')
 
-timeout_id = None
-
 def init():
     global recorder, dispatcher, logger, config, repo, oc_client, METADATA, ACL
 
@@ -182,29 +180,54 @@ class UserController():
         self.box.show_all()
         recorder.title_standin = None
 
-    def on_rec(self):
+    def on_rec(self, element = None):
         global recorder
-        recorder.record(self.create_mp())
-        self.__logger.info("# Start Recording")
 
-    def stop_recording(self):
+        self.__logger.info("# Start Recording 1")
+        current_mediapackage = self.create_mp()
+        if current_mediapackage is None:
+            self.__logger.info("# MP NONE")
+        else:
+            self.__logger.info(current_mediapackage.getTitle())
+            self.__logger.info(current_mediapackage.getSeries())
+
+        recorder.record(current_mediapackage)
+        self.__logger.info("# Start Recording 2")
+
+    def stop_recording(self, element = None, mp = None):
         global recorder
-        Gdk.threads_add_idle(GLib.PRIORITY_HIGH, recorder.stop)
         self.__logger.info("# Stopping Recording")
+        Gdk.threads_add_idle(GLib.PRIORITY_HIGH, recorder.stop)
 
     def create_mp(self):
         if self.details is None:
-            return None
+            return self.default_mediapackage()
 
         self.details['take'] += 1
-        title = self.details['organizer'].strip() + ' - Take #' + str(self.details['take'])
+        # self.__logger.info(self.details)
+        title = self.details['organizer'] + ' - Take #' + str(self.details['take'])
+        # self.__logger.info(title)
+
         new_mp = mediapackage.Mediapackage(title=title, presenter=self.details['organizer'])
         new_mp.setMetadataByName('source', 'Personal['+ self.details['series'] +']')
         new_mp.setSeries({
             'title': self.details['seriesTitle'],
             'identifier': self.details['series']
         })
+        # self.__logger.info(new_mp.getTitle())
         return new_mp
+
+    def default_mediapackage(self):
+        global config
+
+        now = datetime.now().replace(microsecond=0)
+        title = "Recording started at " + now.isoformat()
+        mp = mediapackage.Mediapackage(title=title)
+        if (context):
+            mp.setSeries({
+                'identifier': context.get_conf().get('series', 'default')
+            })
+        return mp
 
 class SetUserClass(Gtk.Widget):
     """
@@ -509,15 +532,18 @@ class SetUserClass(Gtk.Widget):
 
         try:
             response = self.__oc_client.get_user_details(user_id)
+            full_data = json.loads(response, encoding='utf8')
+            # self.__logger.info(full_data)
 
-            if "sakai,opencast" in response:
-                full_data = json.loads(response, encoding='utf8')
-
+            if full_data['user']['name']:
                 result_data['fullname'] = full_data['user']['name']
                 result_data['email'] = full_data['user']['email'].lower()
                 result_data['username'] = full_data['user']['username'].lower()
+                result_data['upperuser'] = full_data['user']['username'].upper()
+
         except Exception as exc:
             self.__logger.warning('call_get_user_info user [{1}]: {0}'.format(exc, user_id))
+
 
         try:
             response = self.__oc_client.get_personal_series(user_id, self.series_filter)
